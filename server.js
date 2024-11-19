@@ -2,6 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const app = express();
 const os = require('os');
+const fs = require('fs');
 
 app.use(cors());
 app.use(express.json())
@@ -66,7 +67,7 @@ app.get('/system-stats', (req, res) => {
 app.use('/login', (req, res) => {
     const username = req.body.username;
     const password = req.body.password;
-    console.log(req.body.password);
+    console.log(req.body.username, req.body.password);
     
     const query = 'SELECT * FROM users WHERE username = ?';
     db.query(query, [username], (err, results) => {
@@ -108,6 +109,67 @@ app.use('/check-perms', (req, res) => {
         res.json({
             permissions: results[0].perms
         });
+    });
+});
+
+app.use('/config', (req, res) => {
+    const result = req.headers['x-username'];
+
+    console.log(req.headers['x-username']);
+    if (!result) {
+        return res.status(400).json({ error: "x-username header is required" });
+    }
+    const pre_username = JSON.parse(result);
+    const username = pre_username.token;
+    // Check if user exists and has permissions
+    console.log(username);
+    const query = 'SELECT perms FROM users WHERE username = ?';
+    db.query(query, [username], (err, results) => {
+        if (err) {
+            console.error('Database error:', err);
+            return res.status(500).json({ error: "Internal server error" });
+        }
+
+        if (results.length === 0) {
+            return res.status(401).json({ error: "Unauthorized" });
+        }
+
+        const perms = results[0].perms;
+        if (perms !== 'admin') {
+            return res.status(403).json({ error: "Insufficient permissions" });
+        }
+
+        // Handle config updates
+        if (req.method === 'POST') {
+            try {
+                const newConfig = req.body;
+                console.log(newConfig);
+                fs.writeFileSync('config.json', JSON.stringify(newConfig));
+                res.json({ message: "Config updated successfully" });
+            } catch (error) {
+                console.error('Error writing config:', error);
+                res.status(500).json({ error: "Failed to update config" });
+            }
+        }
+        
+        // Handle config reads
+        else if (req.method === 'GET') {
+            try {
+                const configData = fs.readFileSync('config.json', 'utf8');
+                if (!configData) {
+                    return res.status(500).json({ error: "Config file is empty" });
+                }
+                const config = JSON.parse(configData);
+                res.json(config);
+            } catch (error) {
+                console.error('Error reading config:', error);
+                res.status(500).json({ error: "Failed to read config" });
+            }
+        }
+        
+        else {
+            res.status(405).json({ error: "Method not allowed" });
+        }
     });
 });
 
